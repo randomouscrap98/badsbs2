@@ -3,6 +3,7 @@ import requests
 import getpass
 import timeago
 import datetime
+import dateutil.parser
 
 # Load from a file sometime?
 API = "https://newdev.smilebasicsource.com/api"
@@ -31,7 +32,7 @@ badsbs2: all commands are typed as-is
   token
   me
   categories (#)
-  contents (page#) (parent#)
+  contents (parent#) (page#)
   quit 
  ------------------------
 """.strip("\n"))
@@ -121,15 +122,17 @@ def trimtree(root, removeCheck):
 
 
 # Print a category tree hierarchy starting at node (recursive)
-def printcattree(node, level = 0): # , shouldPrint = None):
-    # if shouldPrint and not shouldPrint(node):
-    #    return
+def printcattree(node, level = 0):
+    if not node:
+        return
     nextLevel = level
     if node["id"] != 0:
         output = (" " * level * INDENT) + str(node["id"]) + ": "
         if "username" in node:
             output += "[" + node["username"] + "] "
         output += node["name"]
+        if "editDate" in node:
+            output += " - " + timeago.format(dateutil.parser.parse(node["editDate"]), datetime.datetime.now(datetime.timezone.utc))
         print(output)
         nextLevel += 1
     if "children" in node:
@@ -143,19 +146,22 @@ def displaycategories(num):
     node = findnode(root, num)
     printcattree(node)
 
-def displaycontent(page, parent):
+def displaycontent(parent, page):
     pstr = str(parent) if parent > 0 else ""
     skip = str(page * DISPLAYLIMIT)
     limit = str(DISPLAYLIMIT)
     chain = stdrequest(f"{API}/Read/chain?requests=content-%7B%22parentIds%22%3A%5B{pstr}%5D%2C%20%22limit%22%3A{limit}%2C%22skip%22%3A{skip}%2C%22sort%22%3A%22editDate%22%2C%22reverse%22%3Atrue%7D&requests=category&requests=user.0createUserId&category=id,name,parentId&content=id,name,createuserId,parentid,editDate&user=id,username")
-    content = chain["content"]
+    content = chain["content"] if "content" in chain else []
     for c in content:
         for u in chain["user"]:
             if u["id"] == c["createUserId"]:
                 c["username"] = u["username"]
     all = chain["category"] + content
     tree = trimtree(computecategorytree(all), lambda x: "createUserId" not in x and len(x["children"]) == 0)
-    printcattree(tree)
+    if tree:
+        printcattree(tree)
+    else:
+        logging.warning("No content")
 
 # Called directly from command loop: do everything necessary to login
 def login(name):
@@ -214,7 +220,7 @@ while True:
         elif command == "categories":
             displaycategories(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "contents":
-            displaycontent(int(parts[1]) if len(parts) > 1 else 0, int(parts[2]) if len(parts) > 2 else -1)
+            displaycontent(int(parts[1]) if len(parts) > 1 else -1, int(parts[2]) if len(parts) > 2 else 0)
         else:
             logging.warning(f"Unknown command: {command}")
 
