@@ -18,22 +18,26 @@ logging.basicConfig(
 
 def printHelp():
     print("""
-* badsbs2: all commands are typed as-is *
-    help
-    login username
-    logout
-    token
-    me
-    categories (#)
-    quit
-""")
+badsbs2: all commands are typed as-is
+ --------------------
+  help
+  login username
+  logout
+  token
+  me
+  categories (#)
+  quit 
+ --------------------
+""".strip("\n"))
 
+# A simple way to display a dictionary of data (warn: will print objects for any nested object)
 def simpleformat(data):
     lines = []
     for k in data:
         lines.append(f" {k}: {data[k]}")
     return "\n".join(lines)
 
+# Assuming response is in an error state, "handle" it (based on our api)
 def handleerror(response, failMessage = "API Fail"):
     logging.debug(response.text)
     message = ""
@@ -48,6 +52,7 @@ def handleerror(response, failMessage = "API Fail"):
         message = response.text
     raise Exception(f"({response.status_code}) {failMessage}: {message}")
 
+# Get standard headers (authorize, etc)
 def stdheaders():
     global token
     headers = {"Accept" : "application/json"}
@@ -55,6 +60,7 @@ def stdheaders():
         headers["Authorization"] = f"Bearer {token}"
     return headers
 
+# A standard GET request to any endpoint (includes authorization)
 def stdrequest(url):
     logging.debug(f"GET: {url}")
     response = requests.get(url, headers = stdheaders())
@@ -63,6 +69,7 @@ def stdrequest(url):
     else:
         handleerror(response, "GET fail")
 
+# Given a standard category result from the API, build a TREE
 def computecategorytree(categories):
     root = {"id" : 0, "children" : [], "name" : "Root Categories", "myPerms" : "" }
     pending = [root]
@@ -75,6 +82,7 @@ def computecategorytree(categories):
                 pending.append(c)
     return root
 
+# Find a node with a given id in a tree (could be any tree with ids and children)
 def findnode(root, id):
     pending = [root]
     while pending:
@@ -85,17 +93,20 @@ def findnode(root, id):
             return next
     raise Exception(f"No node found with id {id}!")
 
+# Print a category tree hierarchy starting at node (recursive)
 def printcattree(node, level):
     print((" " * level * 2) + str(node["id"]) + ": " + node["name"])
     for c in node["children"]:
         printcattree(c, level + 1)
 
+# Called directly from command loop: do everything to display categories
 def displaycategories(num):
     categories = stdrequest(f"{API}/category")
     root = computecategorytree(categories)
     node = findnode(root, num)
     printcattree(node, 0)
 
+# Called directly from command loop: do everything necessary to login
 def login(name):
     global username, userId, token
     if not name:
@@ -110,12 +121,15 @@ def login(name):
     else:
         handleerror(response, "Could not login!")
 
+# Called directly from command loop: do everything necessary to logout
 def logout():
     global username, token
     username = ""
     token = None
     logging.info("Logged out!")
 
+
+# Beginning of real program: just leave everything lying around outside I guess...
 logging.info("Starting up...")
 logging.info(f"Connecting to {API}...")
 
