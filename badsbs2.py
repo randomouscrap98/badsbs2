@@ -4,6 +4,8 @@ import getpass
 
 # Load from a file sometime?
 API = "https://newdev.smilebasicsource.com/api"
+DISPLAYLIMIT = 20
+LOGLEVEL = logging.INFO
 
 # Globals lol (this is a bad script!)
 userId = 0
@@ -12,22 +14,23 @@ token = None
 
 # Configure logging... you can change this I guess
 logging.basicConfig(
-    level=logging.INFO, 
+    level=LOGLEVEL, 
     format='[%(asctime)s] %(message)s', 
     datefmt='%H:%M:%S')
 
 def printHelp():
     print("""
 badsbs2: all commands are typed as-is
- --------------------
+ ------------------------
   help
   login username
   logout
   token
   me
   categories (#)
+  contents (page#) (parent#)
   quit 
- --------------------
+ ------------------------
 """.strip("\n"))
 
 # A simple way to display a dictionary of data (warn: will print objects for any nested object)
@@ -95,16 +98,29 @@ def findnode(root, id):
 
 # Print a category tree hierarchy starting at node (recursive)
 def printcattree(node, level):
-    print((" " * level * 2) + str(node["id"]) + ": " + node["name"])
-    for c in node["children"]:
-        printcattree(c, level + 1)
+    nextLevel = level
+    if node["id"] != 0:
+        print((" " * level * 2) + str(node["id"]) + ": " + node["name"])
+        nextLevel += 1
+    if "children" in node:
+        for c in node["children"]:
+            printcattree(c, nextLevel)
 
 # Called directly from command loop: do everything to display categories
 def displaycategories(num):
-    categories = stdrequest(f"{API}/read/chain?requests=category&category=id,name,parentId")
-    root = computecategorytree(categories)
+    chain = stdrequest(f"{API}/read/chain?requests=category&category=id,name,parentId")
+    root = computecategorytree(chain["category"])
     node = findnode(root, num)
     printcattree(node, 0)
+
+def displaycontent(page, parent):
+    pstr = str(parent) if parent > 0 else ""
+    skip = str(page * DISPLAYLIMIT)
+    limit = str(DISPLAYLIMIT)
+    chain = stdrequest(f"{API}/Read/chain?requests=content-%7B%22parentIds%22%3A%5B{pstr}%5D%2C%20%22limit%22%3A{limit}%2C%22skip%22%3A{skip}%2C%22sort%22%3A%22editDate%22%2C%22reverse%22%3Atrue%7D&requests=category.0parentId&requests=user.0createUserId&category=id,name,parentId&content=id,name,createuserId,parentid,editDate&user=id,username")
+    all = chain["category"] + chain["content"]
+    tree = computecategorytree(all)
+    printcattree(tree, 0)
 
 # Called directly from command loop: do everything necessary to login
 def login(name):
@@ -162,6 +178,10 @@ while True:
             print(simpleformat(stdrequest(f"{API}/user/me")))
         elif command == "categories":
             displaycategories(int(parts[1]) if len(parts) > 1 else 0)
+        elif command == "contents":
+            displaycontent(int(parts[1]) if len(parts) > 1 else 0, int(parts[2]) if len(parts) > 2 else -1)
+        else:
+            logging.warning(f"Unknown command: {command}")
 
     except Exception as ex:
         logging.error(str(ex))
