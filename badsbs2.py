@@ -1,10 +1,13 @@
 import logging
 import requests
 import getpass
+import timeago
+import datetime
 
 # Load from a file sometime?
 API = "https://newdev.smilebasicsource.com/api"
 DISPLAYLIMIT = 20
+INDENT = 2
 LOGLEVEL = logging.INFO
 
 # Globals lol (this is a bad script!)
@@ -39,6 +42,11 @@ def simpleformat(data):
     for k in data:
         lines.append(f" {k}: {data[k]}")
     return "\n".join(lines)
+
+# def linkusers(list, users):
+#     for l in list:
+#         if "createUserId" in l:
+
 
 # Assuming response is in an error state, "handle" it (based on our api)
 def handleerror(response, failMessage = "API Fail"):
@@ -96,11 +104,33 @@ def findnode(root, id):
             return next
     raise Exception(f"No node found with id {id}!")
 
+def trimtree(root, removeCheck):
+    # "depth first", go to the bottom and trim up
+    if "children" in root:
+        children = root["children"]
+        root["children"] = []
+        for c in children:
+            val = trimtree(c, removeCheck)
+            if val:
+                root["children"].append(val)
+    # Now check ourselves
+    if removeCheck(root):
+        return None
+    else:
+        return root
+
+
 # Print a category tree hierarchy starting at node (recursive)
-def printcattree(node, level):
+def printcattree(node, level = 0): # , shouldPrint = None):
+    # if shouldPrint and not shouldPrint(node):
+    #    return
     nextLevel = level
     if node["id"] != 0:
-        print((" " * level * 2) + str(node["id"]) + ": " + node["name"])
+        output = (" " * level * INDENT) + str(node["id"]) + ": "
+        if "username" in node:
+            output += "[" + node["username"] + "] "
+        output += node["name"]
+        print(output)
         nextLevel += 1
     if "children" in node:
         for c in node["children"]:
@@ -111,16 +141,21 @@ def displaycategories(num):
     chain = stdrequest(f"{API}/read/chain?requests=category&category=id,name,parentId")
     root = computecategorytree(chain["category"])
     node = findnode(root, num)
-    printcattree(node, 0)
+    printcattree(node)
 
 def displaycontent(page, parent):
     pstr = str(parent) if parent > 0 else ""
     skip = str(page * DISPLAYLIMIT)
     limit = str(DISPLAYLIMIT)
-    chain = stdrequest(f"{API}/Read/chain?requests=content-%7B%22parentIds%22%3A%5B{pstr}%5D%2C%20%22limit%22%3A{limit}%2C%22skip%22%3A{skip}%2C%22sort%22%3A%22editDate%22%2C%22reverse%22%3Atrue%7D&requests=category.0parentId&requests=user.0createUserId&category=id,name,parentId&content=id,name,createuserId,parentid,editDate&user=id,username")
-    all = chain["category"] + chain["content"]
-    tree = computecategorytree(all)
-    printcattree(tree, 0)
+    chain = stdrequest(f"{API}/Read/chain?requests=content-%7B%22parentIds%22%3A%5B{pstr}%5D%2C%20%22limit%22%3A{limit}%2C%22skip%22%3A{skip}%2C%22sort%22%3A%22editDate%22%2C%22reverse%22%3Atrue%7D&requests=category&requests=user.0createUserId&category=id,name,parentId&content=id,name,createuserId,parentid,editDate&user=id,username")
+    content = chain["content"]
+    for c in content:
+        for u in chain["user"]:
+            if u["id"] == c["createUserId"]:
+                c["username"] = u["username"]
+    all = chain["category"] + content
+    tree = trimtree(computecategorytree(all), lambda x: "createUserId" not in x and len(x["children"]) == 0)
+    printcattree(tree)
 
 # Called directly from command loop: do everything necessary to login
 def login(name):
