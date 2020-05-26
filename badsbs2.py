@@ -101,7 +101,7 @@ def printcattree(node, level):
 
 # Called directly from command loop: do everything to display categories
 def displaycategories(num):
-    categories = stdrequest(f"{API}/category")
+    categories = stdrequest(f"{API}/read/chain?requests=category&category=id,name,parentId")
     root = computecategorytree(categories)
     node = findnode(root, num)
     printcattree(node, 0)
