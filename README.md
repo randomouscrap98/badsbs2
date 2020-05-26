@@ -10,11 +10,12 @@ If you're on linux, all you have to do to run is:
 make run  
 ```
 
-If you're not on linux, you should be
+If you're not on linux, you should be. But it does run on Windows/etc
 
 ### Manual steps
 
-I recommend just running make if possible. 
+*I recommend just running make if possible.*
+
 The manual steps for linux setup are:
 
 ```shell
@@ -32,3 +33,4 @@ python3 badsbs2.py
 deactivate
 ```
 
+Change all "source .venv/bin/activate" to like... uh ".venv/Scripts/activate.bat" if on windows. That might work.
