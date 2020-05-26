@@ -12,7 +12,7 @@ token = None
 
 # Configure logging... you can change this I guess
 logging.basicConfig(
-    level=logging.DEBUG, 
+    level=logging.INFO, 
     format='[%(asctime)s] %(message)s', 
     datefmt='%H:%M:%S')
 
@@ -24,6 +24,7 @@ def printHelp():
     logout
     token
     me
+    categories (#)
     quit
 """)
 
@@ -32,13 +33,6 @@ def simpleformat(data):
     for k in data:
         lines.append(f" {k}: {data[k]}")
     return "\n".join(lines)
-
-def stdheaders():
-    global token
-    headers = {"Accept" : "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return headers
 
 def handleerror(response, failMessage = "API Fail"):
     logging.debug(response.text)
@@ -52,7 +46,55 @@ def handleerror(response, failMessage = "API Fail"):
                 message += k + ": " + ",".join(data["errors"][k])
     except:
         message = response.text
-    raise Exception(f"{failMessage}: {message}")
+    raise Exception(f"({response.status_code}) {failMessage}: {message}")
+
+def stdheaders():
+    global token
+    headers = {"Accept" : "application/json"}
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+def stdrequest(url):
+    logging.debug(f"GET: {url}")
+    response = requests.get(url, headers = stdheaders())
+    if response:
+        return response.json()
+    else:
+        handleerror(response, "GET fail")
+
+def computecategorytree(categories):
+    root = {"id" : 0, "children" : [], "name" : "Root Categories", "myPerms" : "" }
+    pending = [root]
+    while pending:
+        next = pending.pop()
+        for c in categories:
+            if c["parentId"] == next["id"] and next["id"] != c["id"]:
+                next["children"].append(c)
+                c["children"] = []
+                pending.append(c)
+    return root
+
+def findnode(root, id):
+    pending = [root]
+    while pending:
+        next = pending.pop()
+        for c in next["children"]:
+            pending.append(c)
+        if next["id"] == id:
+            return next
+    raise Exception(f"No node found with id {id}!")
+
+def printcattree(node, level):
+    print((" " * level * 2) + str(node["id"]) + ": " + node["name"])
+    for c in node["children"]:
+        printcattree(c, level + 1)
+
+def displaycategories(num):
+    categories = stdrequest(f"{API}/category")
+    root = computecategorytree(categories)
+    node = findnode(root, num)
+    printcattree(node, 0)
 
 def login(name):
     global username, userId, token
@@ -73,14 +115,6 @@ def logout():
     username = ""
     token = None
     logging.info("Logged out!")
-
-def stdrequest(url):
-    logging.debug(f"GET: {url}")
-    response = requests.get(url, headers = stdheaders())
-    if response:
-        return response.json()
-    else:
-        handleerror(response, "GET fail")
 
 logging.info("Starting up...")
 logging.info(f"Connecting to {API}...")
@@ -112,6 +146,8 @@ while True:
             print(f"Your token: {token}")
         elif command == "me":
             print(simpleformat(stdrequest(f"{API}/user/me")))
+        elif command == "categories":
+            displaycategories(int(parts[1]) if len(parts) > 1 else 0)
 
     except Exception as ex:
         logging.error(str(ex))
