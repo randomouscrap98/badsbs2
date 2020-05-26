@@ -1,5 +1,5 @@
 ## badsbs2
-A python script (singular) that gives a very bad interface for sbs2
+A python script that gives a very bad interface for sbs2
 
 ## Running
 Get the whole repo, clone it, whatever.
@@ -10,6 +10,11 @@ If you're on linux, all you have to do to run is:
 make run  
 ```
 
+If you're not on linux, you should be
+
+### Manual steps
+
+I recommend just running make if possible. 
 The manual steps for linux setup are:
 
 ```shell
