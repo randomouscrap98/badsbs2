@@ -4,6 +4,7 @@ import getpass
 import timeago
 import datetime
 import dateutil.parser
+import os
 
 
 # Load from a file sometime?
@@ -11,6 +12,7 @@ API = "https://newdev.smilebasicsource.com/api"
 DISPLAYLIMIT = 20
 INDENT = 2
 LOGLEVEL = logging.INFO
+TOKENFILE = "token.secret"
 
 # Globals lol (this is a bad script!)
 userId = 0
@@ -34,6 +36,7 @@ badsbs2: all commands are typed as-is
   me
   categories (#)
   contents (parent#) (page#)
+  qcat parent#
   quit 
  ------------------------
 """.strip("\n"))
@@ -164,6 +167,20 @@ def displaycontent(parent, page):
     else:
         logging.warning("No content")
 
+def qcat(parent):
+    category = { "parentId" : parent }
+    category["name"] = input("Category name: ")
+    category["description"] = input("Category description: ")
+    response = requests.post(f"{API}/category", json = category, headers = stdheaders())
+    if response:
+        print(simpleformat(response.json()))
+    else:
+        handleerror(response, "POST fail")
+
+def yn(prompt):
+    r = input(prompt + " (y/n): ")
+    return r.lower() == "y"
+
 # Called directly from command loop: do everything necessary to login
 def login(name):
     global username, userId, token
@@ -176,6 +193,9 @@ def login(name):
         token = response.json()
         username = name
         logging.info("Login successful!")
+        if yn("Store login token for automatic login?"):
+            with open(TOKENFILE, "w") as f:
+                f.write(token)
     else:
         handleerror(response, "Could not login!")
 
@@ -196,6 +216,16 @@ if requests.get(f"{API}/test"):
 else:
     logging.critical("Could not connect, exiting...")
     exit(10)
+
+if os.path.isfile(TOKENFILE):
+    logging.info("Found existing login... trying now")
+    with open(TOKENFILE, "r") as f:
+        token = f.read()
+    # now test the token
+    me = stdrequest(f"{API}/user/me")
+    if me:
+        logging.info("Pre-existing login valid!")
+        username = me["username"]
 
 printHelp()
 
@@ -222,6 +252,8 @@ while True:
             displaycategories(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "contents":
             displaycontent(int(parts[1]) if len(parts) > 1 else -1, int(parts[2]) if len(parts) > 2 else 0)
+        elif command == "qcat":
+            qcat(int(parts[1]) if len(parts) > 1 else 0)
         else:
             logging.warning(f"Unknown command: {command}")
 
