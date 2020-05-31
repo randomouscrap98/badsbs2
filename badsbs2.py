@@ -47,6 +47,8 @@ badsbs2: all commands are typed as-is
   help 
   login username
   logout|token|me
+  register username email
+  confirm key
   categories (#)
   contents (parent#) (page#)
   users (page#)
@@ -276,6 +278,34 @@ def login(name):
     else:
         handleerror(response, "Could not login!")
 
+def register(name, email):
+    if not name:
+        raise Exception("Must provide username!")
+    if not email:
+        raise Exception("Must provide email!")
+    password = getpass.getpass(f"Register password for {name}: ")
+    logging.info(f"Performing initial registration for {name}...")
+    response = requests.post(f"{API}/user/register", json = { "username" : name, "password" : password, "email": email }, headers = stdheaders())
+    if response:
+        logging.info(f"Registration successful! Sending email to {email}...")
+        response2 = requests.post(f"{API}/user/register/sendemail", json = {"email":email}, headers = stdheaders())
+        if response2:
+            logging.info("Sent registration email!")
+        else:
+            handleerror(response, "Could not send email!")
+    else:
+        handleerror(response, "Could not register!")
+
+def confirm(key):
+    if not key:
+        raise Exception("Must provide key!")
+    logging.info(f"Confirming key...")
+    response = requests.post(f"{API}/user/register/confirm", json = { "confirmationKey" : key }, headers = stdheaders())
+    if response:
+        logging.info("User confirmed! Hope you remember who it was!")
+    else:
+        handleerror(response, "Could not confirm key!")
+
 # Called directly from command loop: do everything necessary to logout
 def logout():
     setToken(None)
@@ -324,6 +354,10 @@ while True:
             logout()
         elif command == "token":
             print(f"Your token: {token}")
+        elif command == "register":
+            register(parts[1], parts[2])
+        elif command == "confirm":
+            confirm(parts[1])
         elif command == "me":
             print(simpleformat(stdrequest(f"{API}/user/me")))
         elif command == "category":
