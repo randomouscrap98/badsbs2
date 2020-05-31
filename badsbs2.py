@@ -42,21 +42,16 @@ logging.basicConfig(
 def printHelp():
     print("""
 badsbs2: all commands are typed as-is
+| = "or", commands can be substituted
  ------------------------
-  help
+  help 
   login username
-  logout
-  token
-  me
+  logout|token|me
   categories (#)
-  category #
   contents (parent#) (page#)
-  content #
   users (page#)
-  user #
-  qcat parent#
-  qcon parent#
-  qcom parent#
+  category|content|user #
+  qcat|qcon|qcom parent#
   qconed #
   quit 
  ------------------------
