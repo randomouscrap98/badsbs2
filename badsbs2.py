@@ -7,6 +7,7 @@ import dateutil.parser
 import os
 import re
 import json
+import base64
 
 
 # Load from a file sometime?
@@ -16,10 +17,21 @@ INDENT = 2
 LOGLEVEL = logging.INFO
 TOKENFILE = "token.secret"
 
-# Globals lol (this is a bad script!)
-userId = 0
-username = "" 
-token = None
+# Everything is globals lol (this is a bad script!)
+
+def setToken(t, name = None):
+    global username, userId, token
+    token = t
+    if t:
+        username = name
+        part = (token.split(".")[1]).encode("UTF-8")
+        raw = base64.decodebytes(part)
+        userId = (json.loads(raw))["uid"]
+    else:
+        username = ""
+        userId = 0
+
+setToken(None)
 
 # Configure logging... you can change this I guess
 logging.basicConfig(
@@ -209,30 +221,29 @@ def permget():
         perms[match.group(1)] = match.group(2)
     return perms
 
-
 # Called directly from command loop: do everything necessary to login
 def login(name):
-    global username, userId, token
     if not name:
         raise Exception("Must provide username!")
     password = getpass.getpass(f"Password for {name}: ")
     logging.info(f"Logging in as {name}...")
     response = requests.post(f"{API}/user/authenticate", json = { "username" : name, "password" : password }, headers = stdheaders())
     if response:
-        token = response.json()
-        username = name
+        t = response.json()
+        setToken(t, name)
         logging.info("Login successful!")
         if yn("Store login token for automatic login?"):
             with open(TOKENFILE, "w") as f:
-                f.write(token)
+                f.write(t)
     else:
         handleerror(response, "Could not login!")
 
 # Called directly from command loop: do everything necessary to logout
 def logout():
-    global username, token
-    username = ""
-    token = None
+    setToken(None)
+    if os.path.isfile(TOKENFILE):
+        os.remove(TOKENFILE)
+        logging.info("Removed cached login")
     logging.info("Logged out!")
 
 
@@ -254,14 +265,14 @@ if os.path.isfile(TOKENFILE):
     me = stdrequest(f"{API}/user/me")
     if me:
         logging.info("Pre-existing login valid!")
-        username = me["username"]
+        setToken(token, me["username"])
 
 printHelp()
 
 # The command loop!
 while True:
     try:
-        read = input(f"{username}$ ")
+        read = input(f"{username}[{userId}]$ ")
         parts = read.strip().split(" ")
         command = parts[0].lower() if parts else ""
 
