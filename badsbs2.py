@@ -51,7 +51,7 @@ badsbs2: all commands are typed as-is
   confirm key
   categories (#)
   contents (parent#) (page#)
-  users|watches (page#)
+  users|watches|activity (page#)
   category|content|user|watch #
   watch add|clear|delete #
   qcat|qcon|qcom parent#
@@ -231,9 +231,30 @@ def displaywatches(page):
 
 def displayactivity(page):
     skip = str(page * DISPLAYLIMIT)
-    req = stdrequest(f"{API}/read/chain?requests=activity-%7B%22reverse%22%3Atrue%2C%22limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=content.0contentId&requests=user.0userId&content=id,name&user=id,username")
-    req["user"].append({"id":-1,"username":"SYSTEM"})
+    req = stdrequest(f"{API}/read/chain?requests=activity-%7B%22reverse%22%3Atrue%2C%22limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=content.0contentId&requests=user.0userId.0contentId&requests=category.0contentId&content=id,name,parentId,createUserId&user=id,username")
+    req["user"].append({"id":-1,"username":"|SYSTEM|"})
     link((req["activity"], "contentId"), (req["content"], "id"), "content")
+    link((req["activity"], "contentId"), (req["user"], "id"), "contentuser")
+    link((req["activity"], "contentId"), (req["category"], "id"), "contentcategory")
+    link((req["activity"], "userId"), (req["user"], "id"), "user")
+    def show(x):
+        msg = x["user"]["username"] if "user" in x else "???"
+        msg += " " + {"c":"created","d":"deleted","r":"read","u":"updated"}[x["action"]]
+        msg += " " + x["type"]
+        if "content" in x:
+            c = x["content"]
+            msg += f" {c['name']} [I{c['id']}:C{c['parentId']}:U{c['createUserId']}]" 
+        elif "contentuser" in x:
+            c = x["contentuser"]
+            msg += f" {c['username']} [{c['id']}]" 
+        elif "contentcategory" in x:
+            c = x["contentcategory"]
+            msg += f" {c['name']} [{c['id']}]" 
+        else:
+            msg += " " + x["extra"]
+        msg += " " + timesince(x["date"])
+        return msg
+    idresult(req["activity"], show)
 
 def qcat(parent):
     category = { "parentId" : parent }
@@ -417,6 +438,8 @@ while True:
             displayusers(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "watches":
             displaywatches(int(parts[1]) if len(parts) > 1 else 0)
+        elif command == "activity":
+            displayactivity(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcat":
             qcat(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcon":
