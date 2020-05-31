@@ -51,8 +51,9 @@ badsbs2: all commands are typed as-is
   confirm key
   categories (#)
   contents (parent#) (page#)
-  users (page#)
-  category|content|user #
+  users|watches (page#)
+  category|content|user|watch #
+  watch add|clear|delete #
   qcat|qcon|qcom parent#
   qconed #
   quit 
@@ -74,10 +75,26 @@ def simpleformat(data):
         lines.append(f" {dk} {data[k]}")
     return "\n".join(lines)
 
-# def linkusers(list, users):
-#     for l in list:
-#         if "createUserId" in l:
+def yn(prompt):
+    r = input(prompt + " (y/n): ")
+    return r.lower() == "y"
 
+def link(orig: tuple, assoc: tuple, linkname):
+    for o in orig[0]:
+        for a in assoc[0]:
+            if o[orig[1]] == a[assoc[1]]:
+                o[linkname] = a
+
+def permget():
+    p = input("Permissions (OCR 1CRUD): ")
+    perms = {}
+    for part in filter(None, p.split(" ")):
+        match = re.match(r"(^\d+)([CcRrUuDd]+)$", part)
+        if not match:
+            logging.warning(f"Couldn't understand {part}, retry!")
+            return permget()
+        perms[match.group(1)] = match.group(2)
+    return perms
 
 # Assuming response is in an error state, "handle" it (based on our api)
 def handleerror(response, failMessage = "API Fail"):
@@ -150,7 +167,6 @@ def trimtree(root, removeCheck):
     else:
         return root
 
-
 # Print a category tree hierarchy starting at node (recursive)
 def printcattree(node, level = 0, maxIdLen = 0):
     if not node:
@@ -159,17 +175,28 @@ def printcattree(node, level = 0, maxIdLen = 0):
     if node["id"] != 0:
         output = (" " * level * INDENT) + str(node["id"]).rjust(maxIdLen, "0") + ": "
         output += node["name"]
-        if "username" in node:
-            output += " [" + node["username"] + "]"
+        if "user" in node:
+            output += " [" + node["user"]["username"] + "]"
         if "editDate" in node:
             output += " - " + timesince(node["editDate"])
         print(output)
         nextLevel += 1
     if "children" in node:
         if node["children"]:
-            maxIdLen = maxnumlen(node["children"]) #max({len(str())})
+            maxIdLen = maxnumlen(node["children"])
         for c in node["children"]:
             printcattree(c, nextLevel, maxIdLen)
+
+def simplelist(endpoint, page):
+    skip = str(page * DISPLAYLIMIT)
+    return stdrequest(f"{API}/{endpoint}?Limit={DISPLAYLIMIT}&skip={skip}")
+
+def idresult(req, display, field = "id"):
+    if req:
+        maxIdLen = maxnumlen(req, field)
+        for r in req:
+            rid = str(r[field]).rjust(maxIdLen)
+            print(f"{rid}: " + display(r))
 
 # Called directly from command loop: do everything to display categories
 def displaycategories(num):
@@ -184,10 +211,7 @@ def displaycontents(parent, page):
     limit = str(DISPLAYLIMIT)
     chain = stdrequest(f"{API}/Read/chain?requests=content-%7B%22parentIds%22%3A%5B{pstr}%5D%2C%20%22limit%22%3A{limit}%2C%22skip%22%3A{skip}%2C%22sort%22%3A%22editDate%22%2C%22reverse%22%3Atrue%7D&requests=category&requests=user.0createUserId&category=id,name,parentId&content=id,name,createuserId,parentid,editDate&user=id,username")
     content = chain["content"] if "content" in chain else []
-    for c in content:
-        for u in chain["user"]:
-            if u["id"] == c["createUserId"]:
-                c["username"] = u["username"]
+    link((content, "createUserId"), (chain["user"], "id"), "user")
     all = chain["category"] + content
     tree = trimtree(computecategorytree(all), lambda x: "createUserId" not in x and len(x["children"]) == 0)
     if tree:
@@ -196,13 +220,14 @@ def displaycontents(parent, page):
         logging.warning("No content")
 
 def displayusers(page):
+    req = simplelist("user", page) 
+    idresult(req, lambda x: f"{x['username']} - " + timesince(x["createDate"]))
+
+def displaywatches(page):
     skip = str(page * DISPLAYLIMIT)
-    req = stdrequest(f"{API}/user?Limit={DISPLAYLIMIT}&skip={skip}")
-    maxIdLen = maxnumlen(req) # max({len(str(r["id"])) for r in req })
-    # maxNameLen = len(max(req, key = "username"))
-    for u in req:
-        uid = str(u["id"]).rjust(maxIdLen)
-        print(f"{uid}: {u['username']} - " + timesince(u["createDate"])) #({u['createDate']})")
+    req = stdrequest(f"{API}/read/chain?requests=watch-%7B%22Limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=content.0contentId")
+    link((req["watch"], "contentId"), (req["content"], "id"), "content")
+    idresult(req["watch"], lambda x: (f"{x['content']['name']} [C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
 
 def qcat(parent):
     category = { "parentId" : parent }
@@ -246,20 +271,30 @@ def qconed(content):
     else:
         handleerror(response2, "POST fail")
 
-def yn(prompt):
-    r = input(prompt + " (y/n): ")
-    return r.lower() == "y"
+def watchcmd(cmd, id):
+    if cmd == "add":
+        response = requests.post(f"{API}/watch/{id}", headers = stdheaders())
+        if response:
+            print(simpleformat(response.json()))
+        else:
+            handleerror(response, "Watch fail")
+    elif cmd == "clear":
+        response = requests.post(f"{API}/watch/{id}/clear", headers = stdheaders())
+        if response:
+            print(simpleformat(response.json()))
+            logging.info(f"Cleared notifications for content {id}")
+        else:
+            handleerror(response, "Watch fail")
+    elif cmd == "delete":
+        response = requests.delete(f"{API}/watch/{id}", headers = stdheaders())
+        if response:
+            print(simpleformat(response.json()))
+            logging.info(f"Deleted watch for content {id}")
+        else:
+            handleerror(response, "Watch fail")
+    else:
+        logging.warning(f"Unknown watch command {cmd}")
 
-def permget():
-    p = input("Permissions (OCR 1CRUD): ")
-    perms = {}
-    for part in filter(None, p.split(" ")):
-        match = re.match(r"(^\d+)([CcRrUuDd]+)$", part)
-        if not match:
-            logging.warn(f"Couldn't understand {part}, retry!")
-            return permget()
-        perms[match.group(1)] = match.group(2)
-    return perms
 
 # Called directly from command loop: do everything necessary to login
 def login(name):
@@ -366,12 +401,16 @@ while True:
             print(simpleformat(stdrequest(f"{API}/content?ids={parts[1]}")[0]))
         elif command == "user":
             print(simpleformat(stdrequest(f"{API}/user?ids={parts[1]}")[0]))
+        elif command == "watch" and (len(parts) == 1 or len(parts) == 2 and parts[1].isnumeric()):
+            print(simpleformat(stdrequest(f"{API}/watch?contentids={parts[1]}")[0]))
         elif command == "categories":
             displaycategories(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "contents":
             displaycontents(int(parts[1]) if len(parts) > 1 else -1, int(parts[2]) if len(parts) > 2 else 0)
         elif command == "users":
             displayusers(int(parts[1]) if len(parts) > 1 else 0)
+        elif command == "watches":
+            displaywatches(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcat":
             qcat(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcon":
@@ -380,6 +419,8 @@ while True:
             qcom(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qconed":
             qconed(int(parts[1]) if len(parts) > 1 else 0)
+        elif command == "watch":
+            watchcmd(parts[1], parts[2])
         else:
             logging.warning(f"Unknown command: {command}")
 
