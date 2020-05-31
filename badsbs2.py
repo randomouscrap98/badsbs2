@@ -229,6 +229,12 @@ def displaywatches(page):
     link((req["watch"], "contentId"), (req["content"], "id"), "content")
     idresult(req["watch"], lambda x: (f"{x['content']['name']} [C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
 
+def displayactivity(page):
+    skip = str(page * DISPLAYLIMIT)
+    req = stdrequest(f"{API}/read/chain?requests=activity-%7B%22reverse%22%3Atrue%2C%22limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=content.0contentId&requests=user.0userId&content=id,name&user=id,username")
+    req["user"].append({"id":-1,"username":"SYSTEM"})
+    link((req["activity"], "contentId"), (req["content"], "id"), "content")
+
 def qcat(parent):
     category = { "parentId" : parent }
     category["name"] = input("Category name: ")
