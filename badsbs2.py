@@ -5,6 +5,8 @@ import timeago
 import datetime
 import dateutil.parser
 import os
+import re
+import json
 
 
 # Load from a file sometime?
@@ -35,8 +37,11 @@ badsbs2: all commands are typed as-is
   token
   me
   categories (#)
+  category #
   contents (parent#) (page#)
+  content #
   qcat parent#
+  qcom parent#
   quit 
  ------------------------
 """.strip("\n"))
@@ -44,8 +49,10 @@ badsbs2: all commands are typed as-is
 # A simple way to display a dictionary of data (warn: will print objects for any nested object)
 def simpleformat(data):
     lines = []
+    maxwidth = len(max(data.keys(), key = len)) + 1
     for k in data:
-        lines.append(f" {k}: {data[k]}")
+        dk = (f"{k}:").rjust(maxwidth)
+        lines.append(f" {dk} {data[k]}")
     return "\n".join(lines)
 
 # def linkusers(list, users):
@@ -150,7 +157,7 @@ def displaycategories(num):
     node = findnode(root, num)
     printcattree(node)
 
-def displaycontent(parent, page):
+def displaycontents(parent, page):
     pstr = str(parent) if parent > 0 else ""
     skip = str(page * DISPLAYLIMIT)
     limit = str(DISPLAYLIMIT)
@@ -171,7 +178,17 @@ def qcat(parent):
     category = { "parentId" : parent }
     category["name"] = input("Category name: ")
     category["description"] = input("Category description: ")
+    category["permissions"] = permget()
     response = requests.post(f"{API}/category", json = category, headers = stdheaders())
+    if response:
+        print(simpleformat(response.json()))
+    else:
+        handleerror(response, "POST fail")
+
+def qcom(parent):
+    comment = { "parentId" : parent }
+    comment["content"] = json.dumps({ "m" : "plaintext", "t" : input("Comment: ") })
+    response = requests.post(f"{API}/comment", json = comment, headers = stdheaders())
     if response:
         print(simpleformat(response.json()))
     else:
@@ -180,6 +197,18 @@ def qcat(parent):
 def yn(prompt):
     r = input(prompt + " (y/n): ")
     return r.lower() == "y"
+
+def permget():
+    p = input("Permissions (OCR 1CRUD): ")
+    perms = {}
+    for part in filter(None, p.split(" ")):
+        match = re.match(r"(^\d+)([CcRrUuDd]+)$", part)
+        if not match:
+            logging.warn(f"Couldn't understand {part}, retry!")
+            return permget()
+        perms[match.group(1)] = match.group(2)
+    return perms
+
 
 # Called directly from command loop: do everything necessary to login
 def login(name):
@@ -248,12 +277,18 @@ while True:
             print(f"Your token: {token}")
         elif command == "me":
             print(simpleformat(stdrequest(f"{API}/user/me")))
+        elif command == "category":
+            print(simpleformat(stdrequest(f"{API}/category?ids={parts[1]}")[0]))
+        elif command == "content":
+            print(simpleformat(stdrequest(f"{API}/content?ids={parts[1]}")[0]))
         elif command == "categories":
             displaycategories(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "contents":
-            displaycontent(int(parts[1]) if len(parts) > 1 else -1, int(parts[2]) if len(parts) > 2 else 0)
+            displaycontents(int(parts[1]) if len(parts) > 1 else -1, int(parts[2]) if len(parts) > 2 else 0)
         elif command == "qcat":
             qcat(int(parts[1]) if len(parts) > 1 else 0)
+        elif command == "qcom":
+            qcom(int(parts[1]) if len(parts) > 1 else 0)
         else:
             logging.warning(f"Unknown command: {command}")
 
