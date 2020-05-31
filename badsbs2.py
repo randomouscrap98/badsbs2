@@ -10,7 +10,7 @@ import json
 import base64
 
 
-# Load from a file sometime?
+# Load from a file sometime? Nah it's a script, just change it!
 API = "https://newdev.smilebasicsource.com/api"
 DISPLAYLIMIT = 20
 INDENT = 2
@@ -53,14 +53,20 @@ badsbs2: all commands are typed as-is
   contents (parent#) (page#)
   content #
   users (page#)
+  user #
   qcat parent#
+  qcon parent#
   qcom parent#
+  qconed #
   quit 
  ------------------------
 """.strip("\n"))
 
 def timesince(date):
     return timeago.format(dateutil.parser.parse(date), datetime.datetime.now(datetime.timezone.utc))
+
+def maxnumlen(list, field = "id"):
+    return max({len(str(l[field])) for l in list })
 
 # A simple way to display a dictionary of data (warn: will print objects for any nested object)
 def simpleformat(data):
@@ -149,22 +155,24 @@ def trimtree(root, removeCheck):
 
 
 # Print a category tree hierarchy starting at node (recursive)
-def printcattree(node, level = 0):
+def printcattree(node, level = 0, maxIdLen = 0):
     if not node:
         return
     nextLevel = level
     if node["id"] != 0:
-        output = (" " * level * INDENT) + str(node["id"]) + ": "
-        if "username" in node:
-            output += "[" + node["username"] + "] "
+        output = (" " * level * INDENT) + str(node["id"]).rjust(maxIdLen, "0") + ": "
         output += node["name"]
+        if "username" in node:
+            output += " [" + node["username"] + "]"
         if "editDate" in node:
             output += " - " + timesince(node["editDate"])
         print(output)
         nextLevel += 1
     if "children" in node:
+        if node["children"]:
+            maxIdLen = maxnumlen(node["children"]) #max({len(str())})
         for c in node["children"]:
-            printcattree(c, nextLevel)
+            printcattree(c, nextLevel, maxIdLen)
 
 # Called directly from command loop: do everything to display categories
 def displaycategories(num):
@@ -193,7 +201,7 @@ def displaycontents(parent, page):
 def displayusers(page):
     skip = str(page * DISPLAYLIMIT)
     req = stdrequest(f"{API}/user?Limit={DISPLAYLIMIT}&skip={skip}")
-    maxIdLen = max({len(str(r["id"])) for r in req })
+    maxIdLen = maxnumlen(req) # max({len(str(r["id"])) for r in req })
     # maxNameLen = len(max(req, key = "username"))
     for u in req:
         uid = str(u["id"]).rjust(maxIdLen)
@@ -210,6 +218,19 @@ def qcat(parent):
     else:
         handleerror(response, "POST fail")
 
+def qcon(parent):
+    content = { "parentId" : parent }
+    content["name"] = input("Content name: ")
+    content["content"] = input("Content: ")
+    content["permissions"] = permget()
+    content["type"] = "@page.resource"
+    content["values"] = { "markupLang": "plaintext", "photos": "" }
+    response = requests.post(f"{API}/content", json = content, headers = stdheaders())
+    if response:
+        print(simpleformat(response.json()))
+    else:
+        handleerror(response, "POST fail")
+
 def qcom(parent):
     comment = { "parentId" : parent }
     comment["content"] = json.dumps({ "m" : "plaintext", "t" : input("Comment: ") })
@@ -218,6 +239,15 @@ def qcom(parent):
         print(simpleformat(response.json()))
     else:
         handleerror(response, "POST fail")
+
+def qconed(content):
+    response = stdrequest(f"{API}/content?ids={content}")[0]
+    response["values"]["badsbs2"] = str(int(datetime.datetime.utcnow().timestamp()))
+    response2 = requests.put(f"{API}/content/{content}", json = response, headers = stdheaders())
+    if response:
+        print(simpleformat(response2.json()))
+    else:
+        handleerror(response2, "POST fail")
 
 def yn(prompt):
     r = input(prompt + " (y/n): ")
@@ -305,6 +335,8 @@ while True:
             print(simpleformat(stdrequest(f"{API}/category?ids={parts[1]}")[0]))
         elif command == "content":
             print(simpleformat(stdrequest(f"{API}/content?ids={parts[1]}")[0]))
+        elif command == "user":
+            print(simpleformat(stdrequest(f"{API}/user?ids={parts[1]}")[0]))
         elif command == "categories":
             displaycategories(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "contents":
@@ -313,8 +345,12 @@ while True:
             displayusers(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcat":
             qcat(int(parts[1]) if len(parts) > 1 else 0)
+        elif command == "qcon":
+            qcon(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcom":
             qcom(int(parts[1]) if len(parts) > 1 else 0)
+        elif command == "qconed":
+            qconed(int(parts[1]) if len(parts) > 1 else 0)
         else:
             logging.warning(f"Unknown command: {command}")
 
