@@ -53,6 +53,7 @@ badsbs2: all commands are typed as-is
   contents (parent#) (page#)
   users|watches|activity (page#)
   category|content|user|watch #
+  notifications (verbose)
   watch add|clear|delete #
   qcat|qcon|qcom parent#
   qconed #
@@ -228,6 +229,27 @@ def displaywatches(page):
     req = stdrequest(f"{API}/read/chain?requests=watch-%7B%22Limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=content.0contentId")
     link((req["watch"], "contentId"), (req["content"], "id"), "content")
     idresult(req["watch"], lambda x: (f"{x['content']['name']} [C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
+
+def displaynotifications(long = None):
+    req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=content.0Id.1Id&content=id,name,parentId,createUserId")
+    link((req["content"], "id"), (req["activityaggregate"], "id"), "activity")
+    link((req["content"], "id"), (req["commentaggregate"], "id"), "comment")
+    def show(x):
+        total = 0
+        msg = ""
+        if "activity" in x:
+            a = x['activity']
+            total += a['count']
+            if long:
+                msg += f"\n  {a['count']} activity - " + timesince(a["lastDate"])
+        if "comment" in x:
+            c = x['comment']
+            total += c['count']
+            if long: 
+                msg += f"\n  {c['count']} comment - " + timesince(c["lastDate"])
+        msg = f"{x['name']} [C{x['parentId']}:U{x['createUserId']}] : {total}" + msg
+        return msg
+    idresult(req["content"], show)
 
 def displayactivity(page):
     skip = str(page * DISPLAYLIMIT)
@@ -440,6 +462,8 @@ while True:
             displaywatches(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "activity":
             displayactivity(int(parts[1]) if len(parts) > 1 else 0)
+        elif command == "notifications":
+            displaynotifications(parts[1] if len(parts) > 1 and parts[1].lower() == "true" else None) #int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcat":
             qcat(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcon":
