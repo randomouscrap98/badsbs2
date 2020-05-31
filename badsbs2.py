@@ -52,11 +52,15 @@ badsbs2: all commands are typed as-is
   category #
   contents (parent#) (page#)
   content #
+  users (page#)
   qcat parent#
   qcom parent#
   quit 
  ------------------------
 """.strip("\n"))
+
+def timesince(date):
+    return timeago.format(dateutil.parser.parse(date), datetime.datetime.now(datetime.timezone.utc))
 
 # A simple way to display a dictionary of data (warn: will print objects for any nested object)
 def simpleformat(data):
@@ -155,7 +159,7 @@ def printcattree(node, level = 0):
             output += "[" + node["username"] + "] "
         output += node["name"]
         if "editDate" in node:
-            output += " - " + timeago.format(dateutil.parser.parse(node["editDate"]), datetime.datetime.now(datetime.timezone.utc))
+            output += " - " + timesince(node["editDate"])
         print(output)
         nextLevel += 1
     if "children" in node:
@@ -185,6 +189,15 @@ def displaycontents(parent, page):
         printcattree(tree)
     else:
         logging.warning("No content")
+
+def displayusers(page):
+    skip = str(page * DISPLAYLIMIT)
+    req = stdrequest(f"{API}/user?Limit={DISPLAYLIMIT}&skip={skip}")
+    maxIdLen = max({len(str(r["id"])) for r in req })
+    # maxNameLen = len(max(req, key = "username"))
+    for u in req:
+        uid = str(u["id"]).rjust(maxIdLen)
+        print(f"{uid}: {u['username']} - " + timesince(u["createDate"])) #({u['createDate']})")
 
 def qcat(parent):
     category = { "parentId" : parent }
@@ -296,6 +309,8 @@ while True:
             displaycategories(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "contents":
             displaycontents(int(parts[1]) if len(parts) > 1 else -1, int(parts[2]) if len(parts) > 2 else 0)
+        elif command == "users":
+            displayusers(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcat":
             qcat(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcom":
