@@ -463,7 +463,7 @@ while True:
         elif command == "activity":
             displayactivity(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "notifications":
-            displaynotifications(parts[1] if len(parts) > 1 and parts[1].lower() == "true" else None) #int(parts[1]) if len(parts) > 1 else 0)
+            displaynotifications(parts[1] if len(parts) > 1 and (parts[1].lower() == "true" or parts[1].lower() == "verbose") else None) #int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcat":
             qcat(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qcon":
