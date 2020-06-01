@@ -59,8 +59,9 @@ badsbs2: all commands are typed as-is
   category|content|user|watch #
   notifications (verbose)
   watch add|clear|delete #
+  vote # bogd
   qcat|qcon|qcom parent#
-  qconed #
+  qcated|qconed|qcomed #
   quit 
  ------------------------
 """.strip("\n"))
@@ -349,6 +350,26 @@ def qconed(content):
     else:
         handleerror(response2, "POST fail")
 
+def qcated(id):
+    response = stdrequest(f"{API}/category?ids={id}")[0]
+    response["values"]["badsbs2"] = str(int(datetime.datetime.utcnow().timestamp()))
+    response2 = requests.put(f"{API}/category/{id}", json = response, headers = stdheaders())
+    if response:
+        print(simpleformat(response2.json()))
+    else:
+        handleerror(response2, "POST fail")
+
+def qcomed(id):
+    response = stdrequest(f"{API}/comment?ids={id}")[0]
+    j = json.loads(response["content"])
+    j["badsbs2"] = str(int(datetime.datetime.utcnow().timestamp()))
+    response["content"] = json.dumps(j)
+    response2 = requests.put(f"{API}/comment/{id}", json = response, headers = stdheaders())
+    if response:
+        print(simpleformat(response2.json()))
+    else:
+        handleerror(response2, "POST fail")
+
 def watchcmd(cmd, id):
     if cmd == "add":
         response = requests.post(f"{API}/watch/{id}", headers = stdheaders())
@@ -373,6 +394,17 @@ def watchcmd(cmd, id):
     else:
         logging.warning(f"Unknown watch command {cmd}")
 
+
+def votecmd(id, vote):
+    if vote == "d":
+        logging.warning(f"Deleting vote for content {id}")
+        response = requests.delete(f"{API}/vote/{id}", headers = stdheaders())
+    else:
+        response = requests.post(f"{API}/vote/{id}/{vote}", headers = stdheaders())
+    if response:
+        print(simpleformat(response.json()))
+    else:
+        handleerror(response, "vote fail")
 
 # Called directly from command loop: do everything necessary to login
 def login(name):
@@ -502,9 +534,15 @@ while True:
         elif command == "qcom":
             qcom(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "qconed":
-            qconed(int(parts[1]) if len(parts) > 1 else 0)
+            qconed(int(parts[1]))
+        elif command == "qcated":
+            qcated(int(parts[1]))
+        elif command == "qcomed":
+            qcomed(int(parts[1]))
         elif command == "watch":
             watchcmd(parts[1], parts[2])
+        elif command == "vote":
+            votecmd(int(parts[1]), parts[2])
         else:
             logging.warning(f"Unknown command: {command}")
 
