@@ -12,13 +12,15 @@ import base64
 
 # Load from a file sometime? Nah it's a script, just change it!
 API = "https://newdev.smilebasicsource.com/api"
-DISPLAYLIMIT = 20
-INDENT = 2
-LOGLEVEL = logging.INFO
-TOKENFILE = "token.secret"
+DISPLAYLIMIT = 20               # The max amount to display for any paged list
+INDENT = 2                      # the indent for each level on tree views
+LOGLEVEL = logging.INFO         # the minimum logging level
+TOKENFILE = "token.secret"      # where to store login token (optional)
 
 # Everything is globals lol (this is a bad script!)
 
+# Set all the data surrounding a logged in user... kind of?
+# Also note that token is JUST the token and not Bearer <token>
 def setToken(t, name = None):
     global username, userId, token
     token = t
@@ -31,6 +33,7 @@ def setToken(t, name = None):
         username = ""
         userId = 0
 
+# Assume no login
 setToken(None)
 
 # Configure logging... you can change this I guess
@@ -62,9 +65,11 @@ badsbs2: all commands are typed as-is
  ------------------------
 """.strip("\n"))
 
+# Return a simple english representation of time since the given (API-supplied) time
 def timesince(date):
     return timeago.format(dateutil.parser.parse(date), datetime.datetime.now(datetime.timezone.utc))
 
+# Return the maximum STRING WIDTH of the IDs in a result
 def maxnumlen(list, field = "id"):
     return max({len(str(l[field])) for l in list })
 
@@ -81,12 +86,14 @@ def yn(prompt):
     r = input(prompt + " (y/n): ")
     return r.lower() == "y"
 
+# Simple linking for returned chained data
 def link(orig: tuple, assoc: tuple, linkname):
     for o in orig[0]:
         for a in assoc[0]:
             if o[orig[1]] == a[assoc[1]]:
                 o[linkname] = a
 
+# Simple method to retrieve a pre-formatted (for the API) dictionary of permissions
 def permget():
     p = input("Permissions (OCR 1CRUD): ")
     perms = {}
@@ -121,7 +128,7 @@ def stdheaders():
         headers["Authorization"] = f"Bearer {token}"
     return headers
 
-# A standard GET request to any endpoint (includes authorization)
+# A standard GET request to any endpoint (includes authorization AND error checking)
 def stdrequest(url):
     logging.debug(f"GET: {url}")
     response = requests.get(url, headers = stdheaders())
@@ -238,6 +245,17 @@ def displaycomments(contentid, page):
     maxUsername = max(len(u["username"]) for u in req["user"]) if req["user"] else 0
     idresult(req["comment"][::-1], lambda x: x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"])) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
 
+# Notifications are, I assume, usually just a count. You could show more details somewhere else but like most of the time
+# you just want a number. As such, we make a single request with two unrelated chains: aggregate activity and aggregate
+# comments, but pass in a special search parameter "ContentLimit" : { "Watches" : true } to indicate we ONLY want the
+# content that shows up in our watch list. If you're not logged in and request this, of course it will be empty. If there
+# are no watches or no new comments, it is also empty. The special watch parameter also sets activity and comment id 
+# limits based on the last time you cleared watch notifications so it will ONLY return EXACTLY the things which are...
+# well, notifications. You can see that without verbose, for each content, it simply prints the activity aggregate count
+# added to the comment aggregate count. Since there's no way to "combine" this in the API yet, it's also easy to display
+# them separately (in verbose mode). So yes, notifications are just aggregate activity counts (watches only) plus 
+# aggregate comment counts (watches only). You can simply add ALL the counts to get an overall number. These should be
+# relatively performant but try not to call it all the time, if you HAVE to, maybe once a minute?
 def displaynotifications(long = None):
     req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=content.0Id.1Id&content=id,name,parentId,createUserId")
     link((req["content"], "id"), (req["activityaggregate"], "id"), "activity")
@@ -259,6 +277,9 @@ def displaynotifications(long = None):
         return msg
     idresult(req["content"], show)
 
+# So activity is interesting because it is events for ANY kind of thing OTHER than comments, which includes files, categories, content,
+# and users (among other things in the future?). So you must chain the activity contentid against multiple things and link it all out 
+# later. that's why there's both multiple chains AND multiple python linking AND the if/elif madness.
 def displayactivity(page):
     skip = str(page * DISPLAYLIMIT)
     req = stdrequest(f"{API}/read/chain?requests=activity-%7B%22reverse%22%3Atrue%2C%22limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=content.0contentId&requests=user.0userId.0contentId&requests=category.0contentId&content=id,name,parentId,createUserId&user=id,username")
