@@ -51,6 +51,7 @@ badsbs2: all commands are typed as-is
   confirm key
   categories (#)
   contents (parent#) (page#)
+  comments parent# (page#)
   users|watches|activity (page#)
   category|content|user|watch #
   notifications (verbose)
@@ -229,6 +230,13 @@ def displaywatches(page):
     req = stdrequest(f"{API}/read/chain?requests=watch-%7B%22Limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=content.0contentId")
     link((req["watch"], "contentId"), (req["content"], "id"), "content")
     idresult(req["watch"], lambda x: (f"{x['content']['name']} [C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
+
+def displaycomments(contentid, page):
+    skip = str(page * DISPLAYLIMIT)
+    req = stdrequest(f"{API}/read/chain?requests=comment-%7B%22parentids%22%3A%5B{contentid}%5D%2C%22reverse%22%3Atrue%2C%22limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=user.0createUserId")
+    link((req["comment"], "createUserId"), (req["user"], "id"), "user")
+    maxUsername = max(len(u["username"]) for u in req["user"]) if req["user"] else 0
+    idresult(req["comment"][::-1], lambda x: x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"])) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
 
 def displaynotifications(long = None):
     req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=content.0Id.1Id&content=id,name,parentId,createUserId")
@@ -456,6 +464,8 @@ while True:
             displaycategories(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "contents":
             displaycontents(int(parts[1]) if len(parts) > 1 else -1, int(parts[2]) if len(parts) > 2 else 0)
+        elif command == "comments":
+            displaycomments(int(parts[1]), int(parts[2]) if len(parts) > 2 else 0)
         elif command == "users":
             displayusers(int(parts[1]) if len(parts) > 1 else 0)
         elif command == "watches":
