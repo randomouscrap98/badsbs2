@@ -8,6 +8,7 @@ import os
 import re
 import json
 import base64
+import time
 
 
 # Load from a file sometime? Nah it's a script, just change it!
@@ -62,6 +63,7 @@ badsbs2: all commands are typed as-is
   vote # bogd
   qcat|qcon|qcom parent#
   qcated|qconed|qcomed #
+  listen #
   quit 
  ------------------------
 """.strip("\n"))
@@ -246,6 +248,22 @@ def displaycomments(contentid, page):
     maxUsername = max(len(u["username"]) for u in req["user"]) if req["user"] else 0
     idresult(req["comment"][::-1], lambda x: x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"])) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
 
+def notificationshowresult(x, long):
+    total = 0
+    msg = ""
+    if "activity" in x:
+        a = x['activity']
+        total += a['count']
+        if long:
+            msg += f"\n  {a['count']} activity - " + timesince(a["lastDate"])
+    if "comment" in x:
+        c = x['comment']
+        total += c['count']
+        if long: 
+            msg += f"\n  {c['count']} comment - " + timesince(c["lastDate"])
+    msg = f"{x['name']} [C{x['parentId']}:U{x['createUserId']}] : {total}" + msg
+    return msg
+
 # Notifications are, I assume, usually just a count. You could show more details somewhere else but like most of the time
 # you just want a number. As such, we make a single request with two unrelated chains: aggregate activity and aggregate
 # comments, but pass in a special search parameter "ContentLimit" : { "Watches" : true } to indicate we ONLY want the
@@ -261,22 +279,8 @@ def displaynotifications(long = None):
     req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=content.0Id.1Id&content=id,name,parentId,createUserId")
     link((req["content"], "id"), (req["activityaggregate"], "id"), "activity")
     link((req["content"], "id"), (req["commentaggregate"], "id"), "comment")
-    def show(x):
-        total = 0
-        msg = ""
-        if "activity" in x:
-            a = x['activity']
-            total += a['count']
-            if long:
-                msg += f"\n  {a['count']} activity - " + timesince(a["lastDate"])
-        if "comment" in x:
-            c = x['comment']
-            total += c['count']
-            if long: 
-                msg += f"\n  {c['count']} comment - " + timesince(c["lastDate"])
-        msg = f"{x['name']} [C{x['parentId']}:U{x['createUserId']}] : {total}" + msg
-        return msg
-    idresult(req["content"], show)
+    idresult(req["content"], lambda x: notificationshowresult(x, long))
+    return req["content"]
 
 # So activity is interesting because it is events for ANY kind of thing OTHER than comments, which includes files, categories, content,
 # and users (among other things in the future?). So you must chain the activity contentid against multiple things and link it all out 
@@ -307,6 +311,22 @@ def displayactivity(page):
         msg += " " + timesince(x["date"])
         return msg
     idresult(req["activity"], show)
+    
+def listencmd(id):
+    logging.warning("Program must be exited to end listener")
+    # The idea is that you get the initial watch counts and stuff yourself from standard chaining 
+    # then continually update them
+    notifcache = displaynotifications(True)
+    lastId = -1
+    while True:
+        try:
+            req = stdrequest(f"{API}/read/listen?actions=%7B%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id-%7B%5C%22ParentIds%5C%22%3A%5B{id}%5D%7D%22%2C%22activityaggregate.0id%22%2C%22commentaggregate.0id%22%2C%22activityaggregate.0id~notifa-%7B%5C%22ContentLimit%5C%22%3A%7B%5C%22Watches%5C%22%3Atrue%7D%7D%22%2C%22commentaggregate.0id~notifc-%7B%5C%22ContentLimit%5C%22%3A%7B%5C%22Watches%5C%22%3Atrue%7D%7D%22%5D%7D")
+            print(simpleformat(req))
+        except Exception as ex:
+            logging.error(ex)
+            time.sleep(5)
+    #actions=%7B%22lastId%22%3A5%2C%22chains%22%3A%5B%22comment.0id%22%5D%7D")
+
 
 def qcat(parent):
     category = { "parentId" : parent }
@@ -405,6 +425,7 @@ def votecmd(id, vote):
         print(simpleformat(response.json()))
     else:
         handleerror(response, "vote fail")
+
 
 # Called directly from command loop: do everything necessary to login
 def login(name):
@@ -543,6 +564,8 @@ while True:
             watchcmd(parts[1], parts[2])
         elif command == "vote":
             votecmd(int(parts[1]), parts[2])
+        elif command == "listen":
+            listencmd(int(parts[1]))
         else:
             logging.warning(f"Unknown command: {command}")
 
