@@ -207,8 +207,10 @@ def idresult(req, display, field = "id"):
     if req:
         maxIdLen = maxnumlen(req, field)
         for r in req:
-            rid = str(r[field]).rjust(maxIdLen)
-            print(f"{rid}: " + display(r))
+            msg = display(r)
+            if msg:
+                rid = str(r[field]).rjust(maxIdLen)
+                print(f"{rid}: " + msg)
 
 # Called directly from command loop: do everything to display categories
 def displaycategories(num):
@@ -241,12 +243,20 @@ def displaywatches(page):
     link((req["watch"], "contentId"), (req["content"], "id"), "content")
     idresult(req["watch"], lambda x: (f"{x['content']['name']} [C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
 
+# def commentshowresult(x, maxUsername):
+#    return x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"]) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
+
+# TODO: fix all this crap, you need to filter the comments before displaying them!
+def docomments(req):
+    link((req["comment"], "createUserId"), (req["user"], "id"), "user")
+    maxUsername = max(len(c["comment"]["username"]) for c in req["comment"]) if req["comment"] else 0
+    idresult(req["comment"][::-1], lambda x : x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"])) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
+    # lambda x: commentshowresult(x, maxUsername))
+
 def displaycomments(contentid, page):
     skip = str(page * DISPLAYLIMIT)
     req = stdrequest(f"{API}/read/chain?requests=comment-%7B%22parentids%22%3A%5B{contentid}%5D%2C%22reverse%22%3Atrue%2C%22limit%22%3A{DISPLAYLIMIT}%2C%22skip%22%3A{skip}%7D&requests=user.0createUserId")
-    link((req["comment"], "createUserId"), (req["user"], "id"), "user")
-    maxUsername = max(len(u["username"]) for u in req["user"]) if req["user"] else 0
-    idresult(req["comment"][::-1], lambda x: x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"])) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
+    docomments(req)
 
 def notificationshowresult(x, long):
     total = 0
@@ -261,7 +271,10 @@ def notificationshowresult(x, long):
         total += c['count']
         if long: 
             msg += f"\n  {c['count']} comment - " + timesince(c["lastDate"])
-    msg = f"{x['name']} [C{x['parentId']}:U{x['createUserId']}] : {total}" + msg
+    if not total:
+        return None # Do not print this notification, there's nothing
+    c = x['content'] if 'content' in x else { "name" : "???", "parentId" : "?", "createUserId" : "?"}
+    msg = f"{c['name']} [C{c['parentId']}:U{c['createUserId']}] : {total}" + msg
     return msg
 
 # Notifications are, I assume, usually just a count. You could show more details somewhere else but like most of the time
@@ -275,12 +288,16 @@ def notificationshowresult(x, long):
 # them separately (in verbose mode). So yes, notifications are just aggregate activity counts (watches only) plus 
 # aggregate comment counts (watches only). You can simply add ALL the counts to get an overall number. These should be
 # relatively performant but try not to call it all the time, if you HAVE to, maybe once a minute?
+# EDIT: also including your watchlist so the return is more complete
 def displaynotifications(long = None):
-    req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=content.0Id.1Id&content=id,name,parentId,createUserId")
-    link((req["content"], "id"), (req["activityaggregate"], "id"), "activity")
-    link((req["content"], "id"), (req["commentaggregate"], "id"), "comment")
-    idresult(req["content"], lambda x: notificationshowresult(x, long))
-    return req["content"]
+    req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=content.0Id.1Id&requests=watch&content=id,name,parentId,createUserId")
+    # link((req["content"], "id"), (req["activityaggregate"], "id"), "activity")
+    # link((req["content"], "id"), (req["commentaggregate"], "id"), "comment")
+    link((req["watch"], "contentId"), (req["activityaggregate"], "id"), "activity")
+    link((req["watch"], "contentId"), (req["commentaggregate"], "id"), "comment")
+    link((req["watch"], "contentId"), (req["content"], "id"), "content")
+    idresult(req["watch"], lambda x: notificationshowresult(x, long))
+    return req["watch"]
 
 # So activity is interesting because it is events for ANY kind of thing OTHER than comments, which includes files, categories, content,
 # and users (among other things in the future?). So you must chain the activity contentid against multiple things and link it all out 
@@ -316,12 +333,22 @@ def listencmd(id):
     logging.warning("Program must be exited to end listener")
     # The idea is that you get the initial watch counts and stuff yourself from standard chaining 
     # then continually update them
-    notifcache = displaynotifications(True)
+    watches = displaynotifications(True)
     lastId = -1
     while True:
         try:
-            req = stdrequest(f"{API}/read/listen?actions=%7B%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id-%7B%5C%22ParentIds%5C%22%3A%5B{id}%5D%7D%22%2C%22activityaggregate.0id%22%2C%22commentaggregate.0id%22%2C%22activityaggregate.0id~notifa-%7B%5C%22ContentLimit%5C%22%3A%7B%5C%22Watches%5C%22%3Atrue%7D%7D%22%2C%22commentaggregate.0id~notifc-%7B%5C%22ContentLimit%5C%22%3A%7B%5C%22Watches%5C%22%3Atrue%7D%7D%22%5D%7D")
-            print(simpleformat(req))
+            # NOTE: There are MANY ways to get what you want from the listening endpoint. This version uses a simple chain but it's inefficient for
+            # network usage because it will complete for ANY comment on the website you can read. Meaning if 10 conversations are happening outside
+            # your room, the endpoint will still give you the messages. I just ignore them in the CLI; I like this method because to me, network is
+            # cheap but server usage is NOT, and this chain is so simple and easy on the server. You don't have to do it like this, you could chain
+            # against watches and do proper limitations and all that.
+            req = stdrequest(f"{API}/read/listen?actions=%7B%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%2C%22content.0parentId.1contentId%22%2C%22user.0createUserId.1userId%22%5D")
+            # actions=%7B%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%5D")
+            # actions=%7B%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id-%7B%5C%22ParentIds%5C%22%3A%5B{id}%5D%7D%22%2C%22activityaggregate.0id%22%2C%22commentaggregate.0id%22%2C%22activityaggregate.0id~notifa-%7B%5C%22ContentLimit%5C%22%3A%7B%5C%22Watches%5C%22%3Atrue%7D%7D%22%2C%22commentaggregate.0id~notifc-%7B%5C%22ContentLimit%5C%22%3A%7B%5C%22Watches%5C%22%3Atrue%7D%7D%22%5D%7D")
+            if "comment" in req:
+                docomments([c for c in req["comment"] if c["parentId"] == id])
+                # idresult(req["comment"][::-1], lambda x: commentshowresult(x) if x["parentId"] == id else None)
+            # print(simpleformat(req))
         except Exception as ex:
             logging.error(ex)
             time.sleep(5)
