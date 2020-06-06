@@ -82,6 +82,8 @@ def maxnumlen(list, field = "id"):
 
 # A simple way to display a dictionary of data (warn: will print objects for any nested object)
 def simpleformat(data):
+    if not data:
+        return ""
     lines = []
     maxwidth = len(max(data.keys(), key = len)) + 1
     for k in data:
@@ -306,11 +308,11 @@ def notificationshowresult(x, long):
 # relatively performant but try not to call it all the time, if you HAVE to, maybe once a minute?
 # EDIT: also including your watchlist so the return is more complete
 def displaynotifications(long = None):
-    req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=content.0Id.1Id&requests=watch&content=id,name,parentId,createUserId")
+    req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=watch&&requests=content.0Id.1Id.2contentId&content=id,name,parentId,createUserId")
     link((req["watch"], "contentId"), (req["activityaggregate"], "id"), "activity")
     link((req["watch"], "contentId"), (req["commentaggregate"], "id"), "comment")
     link((req["watch"], "contentId"), (req["content"], "id"), "content")
-    idresult(req["watch"], lambda x: notificationshowresult(x, long))
+    idresult(req["watch"], lambda x: notificationshowresult(x, long), "contentId")
     return req["watch"]
 
 # So activity is interesting because it is events for ANY kind of thing OTHER than comments, which includes files, categories, content,
@@ -345,14 +347,17 @@ def displayactivity(page):
     
 
 listenJobId = 0
+trackedThreads = []
 
 def listencmd(id):
-    global listenJobId
+    global listenJobId, trackedThreads
     if listenJobId:
         logging.info("Old listener overwritten by new listener") #"Program must be exited to end listener")
     logging.info("Starting listener in background, your typing may get interrupted")
     listenJobId += 1
-    threading.Thread(target=listenjob, args=(id, listenJobId), daemon=True)
+    tempthread = threading.Thread(target=listenjob, args=(id, listenJobId), daemon=True)
+    tempthread.start()
+    trackedThreads.append(tempthread) # This isn't necessary, I don't do anything with the threads
 
 # Below is a standard example of tracking three things: comments in a room, watch notifications (including
 # clears, removals, and new watches) and general website activity. Although I'm not actually showing the
@@ -370,10 +375,17 @@ def listenjob(id, jobId):
                     watches.remove(w)
                 return w
         return None
+    emptyGuy = lambda: { "count" : 0, "lastDate" : None }
     def resetWatch(watch):
         if watch:
-            watch["activity"] = { "count" : 0, "lastDate" : None }
-            watch["comment"] = { "count" : 0, "lastDate" : None }
+            watch["activity"] = emptyGuy()
+            watch["comment"] = emptyGuy()
+    def fillWatch(watch, key, date):
+        if watch:
+            if key not in watch:
+                watch[key] = emptyGuy()
+            watch[key]["count"] += 1
+            watch[key]["lastDate"] = date
     lastId = -1
     while True:
         try:
@@ -388,7 +400,7 @@ def listenjob(id, jobId):
                 return
             logging.debug(f"Listen complete")
             logging.debug(simpleformat(req))
-            chains = req["chains"]
+            chains = req["chains"] if "chains" in req else None
             showWatches = False
             # We should be constnatly clearing the notifications for this room (clearNotifications in the url) so do so from the front-end:
             resetWatch(findWatch(id))
@@ -404,13 +416,13 @@ def listenjob(id, jobId):
                         logging.warning(f"Added a watch we were already tracking: {w['contentId']}")
             if "watchdelete" in chains:
                 for wd in chains["watchdelete"]:
-                    if findWatch(wd["id"], True):
+                    if findWatch(wd["contentId"], True):
                         showWatches = True
                     else:
                         logging.warning("Deleted a watch we weren't tracking!")
             if "watchupdate" in chains:
                 for wd in chains["watchupdate"]:
-                    fw = findWatch(wd["id"])
+                    fw = findWatch(wd["contentId"])
                     if fw:
                         resetWatch(fw)
                         showWatches = True
@@ -423,18 +435,16 @@ def listenjob(id, jobId):
                         continue # Don't count comments from the room we're WATCHING
                     fw = findWatch(c["parentId"])
                     if fw:
-                        fw["comment"]["count"] += 1
-                        fw["comment"]["lastDate"] = c["createDate"]
+                        fillWatch(fw, "comment", c["createDate"])
                         showWatches = True
             if "activity" in chains:
                 for a in chains["activity"]:
                     fw = findWatch(a["contentId"])
                     if fw:
-                        fw["activity"]["count"] += 1
-                        fw["activity"]["lastDate"] = a["date"]
+                        fillWatch(fw, "activity", a["date"])
                         showWatches = True
             if showWatches:
-                idresult(watches, lambda x: notificationshowresult(x, True))
+                idresult(watches, lambda x: notificationshowresult(x, True), "contentId")
         except Exception as ex:
             logging.error(ex)
             time.sleep(5)
