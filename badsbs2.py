@@ -9,10 +9,12 @@ import re
 import json
 import base64
 import time
+import threading
 
 
 # Load from a file sometime? Nah it's a script, just change it!
-API = "https://newdev.smilebasicsource.com/api"
+# API = "https://newdev.smilebasicsource.com/api"
+API = "http://localhost:5000/api"
 DISPLAYLIMIT = 20               # The max amount to display for any paged list
 INDENT = 2                      # the indent for each level on tree views
 LOGLEVEL = logging.INFO         # the minimum logging level
@@ -26,10 +28,10 @@ def setToken(t, name = None):
     global username, userId, token
     token = t
     if t:
-        username = name
-        part = (token.split(".")[1]).encode("UTF-8")
-        raw = base64.decodebytes(part)
+        part = (token.split(".")[1] + "==").encode("UTF-8")
+        raw = base64.urlsafe_b64decode(part) #decodebytes(part)
         userId = (json.loads(raw))["uid"]
+        username = name
     else:
         username = ""
         userId = 0
@@ -100,7 +102,7 @@ def link(orig: tuple, assoc: tuple, linkname):
 
 # Simple method to retrieve a pre-formatted (for the API) dictionary of permissions
 def permget():
-    p = input("Permissions (OCR 1CRUD): ")
+    p = input("Permissions (0CR 1CRUD): ")
     perms = {}
     for part in filter(None, p.split(" ")):
         match = re.match(r"(^\d+)([CcRrUuDd]+)$", part)
@@ -138,7 +140,10 @@ def stdrequest(url):
     logging.debug(f"GET: {url}")
     response = requests.get(url, headers = stdheaders())
     if response:
-        return response.json()
+        if response.content:
+            return response.json()
+        else:
+            return None
     else:
         handleerror(response, "GET fail")
 
@@ -302,8 +307,6 @@ def notificationshowresult(x, long):
 # EDIT: also including your watchlist so the return is more complete
 def displaynotifications(long = None):
     req = stdrequest(f"{API}/read/chain?requests=activityaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=commentaggregate-%7B%22ContentLimit%22%20%3A%20%7B%20%22Watches%22%3Atrue%7D%7D&requests=content.0Id.1Id&requests=watch&content=id,name,parentId,createUserId")
-    # link((req["content"], "id"), (req["activityaggregate"], "id"), "activity")
-    # link((req["content"], "id"), (req["commentaggregate"], "id"), "comment")
     link((req["watch"], "contentId"), (req["activityaggregate"], "id"), "activity")
     link((req["watch"], "contentId"), (req["commentaggregate"], "id"), "comment")
     link((req["watch"], "contentId"), (req["content"], "id"), "content")
@@ -340,10 +343,25 @@ def displayactivity(page):
         return msg
     idresult(req["activity"], show)
     
+
+listenJobId = 0
+
 def listencmd(id):
-    logging.warning("Program must be exited to end listener")
+    global listenJobId
+    if listenJobId:
+        logging.info("Old listener overwritten by new listener") #"Program must be exited to end listener")
+    logging.info("Starting listener in background, your typing may get interrupted")
+    listenJobId += 1
+    threading.Thread(target=listenjob, args=(id, listenJobId), daemon=True)
+
+# Below is a standard example of tracking three things: comments in a room, watch notifications (including
+# clears, removals, and new watches) and general website activity. Although I'm not actually showing the
+# general website activity, I do receive it all and COULD do something with it if I so choose.
+def listenjob(id, jobId):
+    global listenJobId
     # The idea is that you get the initial watch counts and stuff yourself from standard chaining 
-    # then continually update them
+    # then continually update them. Also, you would probably retrieve the last X comments for display in
+    # the rooms you choose
     watches = displaynotifications(True)
     def findWatch(contentId, remove = False):
         for w in watches:
@@ -365,6 +383,9 @@ def listencmd(id):
             # cheap but server usage is NOT, and this chain is so simple and easy on the server. You don't have to do it like this, you could chain
             # against watches and do proper limitations and all that.
             req = stdrequest(f"{API}/read/listen?actions=%7B%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%2C%22content.1parentId.2contentId.3contentId%22%2C%22user.1createUserId.2userId%22%5D%7D")
+            if jobId != listenJobId:
+                logging.debug("Old listener final halt")
+                return
             logging.debug(f"Listen complete")
             logging.debug(simpleformat(req))
             chains = req["chains"]
@@ -398,6 +419,8 @@ def listencmd(id):
             if "comment" in chains:
                 docomments(chains, lambda x: [c for c in x if c["parentId"] == id])
                 for c in chains["comment"]:
+                    if c["parentId"] == id:
+                        continue # Don't count comments from the room we're WATCHING
                     fw = findWatch(c["parentId"])
                     if fw:
                         fw["comment"]["count"] += 1
