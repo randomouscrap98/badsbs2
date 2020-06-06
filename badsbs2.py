@@ -13,8 +13,8 @@ import threading
 
 
 # Load from a file sometime? Nah it's a script, just change it!
-# API = "https://newdev.smilebasicsource.com/api"
-API = "http://localhost:5000/api"
+API = "https://newdev.smilebasicsource.com/api"
+# API = "http://localhost:5000/api"
 DISPLAYLIMIT = 20               # The max amount to display for any paged list
 INDENT = 2                      # the indent for each level on tree views
 LOGLEVEL = logging.INFO         # the minimum logging level
