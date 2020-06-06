@@ -70,6 +70,8 @@ badsbs2: all commands are typed as-is
 
 # Return a simple english representation of time since the given (API-supplied) time
 def timesince(date):
+    if not date:
+        return "Never"
     return timeago.format(dateutil.parser.parse(date), datetime.datetime.now(datetime.timezone.utc))
 
 # Return the maximum STRING WIDTH of the IDs in a result
@@ -243,14 +245,23 @@ def displaywatches(page):
     link((req["watch"], "contentId"), (req["content"], "id"), "content")
     idresult(req["watch"], lambda x: (f"{x['content']['name']} [C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
 
-# def commentshowresult(x, maxUsername):
-#    return x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"]) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
+def commentshowresult(x, maxUsername):
+    msg = x['user']["username"].rjust(maxUsername) + ": "
+    try:
+        msg += json.loads(x['content'])["t"]
+    except:
+        msg += x['content']
+    return msg + " - " + timesince(x["createDate"])
 
 # TODO: fix all this crap, you need to filter the comments before displaying them!
-def docomments(req):
+def docomments(req, cfilter = None):
     link((req["comment"], "createUserId"), (req["user"], "id"), "user")
-    maxUsername = max(len(c["comment"]["username"]) for c in req["comment"]) if req["comment"] else 0
-    idresult(req["comment"][::-1], lambda x : x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"])) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
+    if not cfilter:
+        cfilter = lambda x: x
+    coms = cfilter(req["comment"])
+    maxUsername = max(len(c['user']["username"]) for c in coms) if coms else 0
+    idresult(coms[::-1], lambda x: commentshowresult(x, maxUsername))
+    # lambda x : x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"])) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
     # lambda x: commentshowresult(x, maxUsername))
 
 def displaycomments(contentid, page):
@@ -334,6 +345,17 @@ def listencmd(id):
     # The idea is that you get the initial watch counts and stuff yourself from standard chaining 
     # then continually update them
     watches = displaynotifications(True)
+    def findWatch(contentId, remove = False):
+        for w in watches:
+            if w["contentId"] == contentId:
+                if remove:
+                    watches.remove(w)
+                return w
+        return None
+    def resetWatch(watch):
+        if watch:
+            watch["activity"] = { "count" : 0, "lastDate" : None }
+            watch["comment"] = { "count" : 0, "lastDate" : None }
     lastId = -1
     while True:
         try:
@@ -342,17 +364,57 @@ def listencmd(id):
             # your room, the endpoint will still give you the messages. I just ignore them in the CLI; I like this method because to me, network is
             # cheap but server usage is NOT, and this chain is so simple and easy on the server. You don't have to do it like this, you could chain
             # against watches and do proper limitations and all that.
-            req = stdrequest(f"{API}/read/listen?actions=%7B%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%2C%22content.0parentId.1contentId%22%2C%22user.0createUserId.1userId%22%5D")
-            # actions=%7B%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%5D")
-            # actions=%7B%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id-%7B%5C%22ParentIds%5C%22%3A%5B{id}%5D%7D%22%2C%22activityaggregate.0id%22%2C%22commentaggregate.0id%22%2C%22activityaggregate.0id~notifa-%7B%5C%22ContentLimit%5C%22%3A%7B%5C%22Watches%5C%22%3Atrue%7D%7D%22%2C%22commentaggregate.0id~notifc-%7B%5C%22ContentLimit%5C%22%3A%7B%5C%22Watches%5C%22%3Atrue%7D%7D%22%5D%7D")
-            if "comment" in req:
-                docomments([c for c in req["comment"] if c["parentId"] == id])
-                # idresult(req["comment"][::-1], lambda x: commentshowresult(x) if x["parentId"] == id else None)
-            # print(simpleformat(req))
+            req = stdrequest(f"{API}/read/listen?actions=%7B%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%2C%22content.1parentId.2contentId.3contentId%22%2C%22user.1createUserId.2userId%22%5D%7D")
+            logging.debug(f"Listen complete")
+            logging.debug(simpleformat(req))
+            chains = req["chains"]
+            showWatches = False
+            # We should be constnatly clearing the notifications for this room (clearNotifications in the url) so do so from the front-end:
+            resetWatch(findWatch(id))
+            if "watch" in chains:
+                link((chains["watch"], "contentId"), (chains["content"], "id"), "content")
+                for w in chains["watch"]:
+                    # Just make sure it's not already in there before adding to our watchlist
+                    if not findWatch(w["contentId"]):
+                        resetWatch(w)
+                        watches.append(w)
+                        showWatches = True
+                    else:
+                        logging.warning(f"Added a watch we were already tracking: {w['contentId']}")
+            if "watchdelete" in chains:
+                for wd in chains["watchdelete"]:
+                    if findWatch(wd["id"], True):
+                        showWatches = True
+                    else:
+                        logging.warning("Deleted a watch we weren't tracking!")
+            if "watchupdate" in chains:
+                for wd in chains["watchupdate"]:
+                    fw = findWatch(wd["id"])
+                    if fw:
+                        resetWatch(fw)
+                        showWatches = True
+                    else:
+                        logging.warning("Cleared a watch we weren't tracking!")
+            if "comment" in chains:
+                docomments(chains, lambda x: [c for c in x if c["parentId"] == id])
+                for c in chains["comment"]:
+                    fw = findWatch(c["parentId"])
+                    if fw:
+                        fw["comment"]["count"] += 1
+                        fw["comment"]["lastDate"] = c["createDate"]
+                        showWatches = True
+            if "activity" in chains:
+                for a in chains["activity"]:
+                    fw = findWatch(a["contentId"])
+                    if fw:
+                        fw["activity"]["count"] += 1
+                        fw["activity"]["lastDate"] = a["date"]
+                        showWatches = True
+            if showWatches:
+                idresult(watches, lambda x: notificationshowresult(x, True))
         except Exception as ex:
             logging.error(ex)
             time.sleep(5)
-    #actions=%7B%22lastId%22%3A5%2C%22chains%22%3A%5B%22comment.0id%22%5D%7D")
 
 
 def qcat(parent):
