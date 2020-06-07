@@ -66,6 +66,7 @@ badsbs2: all commands are typed as-is
   qcat|qcon|qcom parent#
   qcated|qconed|qcomed #
   listen #
+  spam endpoint
   quit 
  ------------------------
 """.strip("\n"))
@@ -404,6 +405,7 @@ def listenjob(id, jobId):
             showWatches = False
             # We should be constnatly clearing the notifications for this room (clearNotifications in the url) so do so from the front-end:
             resetWatch(findWatch(id))
+            lastId = req["lastId"]
             if "watch" in chains:
                 link((chains["watch"], "contentId"), (chains["content"], "id"), "content")
                 for w in chains["watch"]:
@@ -548,6 +550,11 @@ def votecmd(id, vote):
     else:
         handleerror(response, "vote fail")
 
+def spamcmd(endpoint):
+    logging.warning(f"Exit program to quit spamming {endpoint}")
+    while True:
+        response = requests.get(f"{API}/{endpoint}", headers = stdheaders())
+        logging.info(response.status_code)
 
 # Called directly from command loop: do everything necessary to login
 def login(name):
@@ -601,6 +608,7 @@ def logout():
         os.remove(TOKENFILE)
         logging.info("Removed cached login")
     logging.info("Logged out!")
+
 
 
 # Beginning of real program: just leave everything lying around outside I guess...
@@ -688,6 +696,8 @@ while True:
             votecmd(int(parts[1]), parts[2])
         elif command == "listen":
             listencmd(int(parts[1]))
+        elif command == "spam":
+            spamcmd(parts[1])
         else:
             logging.warning(f"Unknown command: {command}")
 
