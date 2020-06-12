@@ -13,12 +13,13 @@ import threading
 
 
 # Load from a file sometime? Nah it's a script, just change it!
-API = "https://newdev.smilebasicsource.com/api"
-# API = "http://localhost:5000/api"
+# API = "https://newdev.smilebasicsource.com/api"
+API = "http://localhost:5000/api"
 DISPLAYLIMIT = 20               # The max amount to display for any paged list
 INDENT = 2                      # the indent for each level on tree views
 LOGLEVEL = logging.INFO         # the minimum logging level
-TOKENFILE = "token.secret"      # where to store login token (optional)
+# TOKENFILE = "token.secret"      # where to store login token (optional)
+TOKENFILE = "token_localhostrandom.secret"      # where to store login token (optional)
 
 # Everything is globals lol (this is a bad script!)
 
@@ -395,7 +396,7 @@ def listenjob(id, jobId):
             # your room, the endpoint will still give you the messages. I just ignore them in the CLI; I like this method because to me, network is
             # cheap but server usage is NOT, and this chain is so simple and easy on the server. You don't have to do it like this, you could chain
             # against watches and do proper limitations and all that.
-            req = stdrequest(f"{API}/read/listen?actions=%7B%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%2C%22content.1parentId.2contentId.3contentId%22%2C%22user.1createUserId.2userId%22%5D%7D")
+            req = stdrequest(f"{API}/read/listen?actions=%7B%22statuses%22%3A%7B%2243%22%3A%22active%22%7D%2C%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%2C%22content.1parentId.2contentId.3contentId%22%2C%22user.1createUserId.2userId%22%5D%7D")
             if jobId != listenJobId:
                 logging.debug("Old listener final halt")
                 return
