@@ -365,11 +365,13 @@ def listencmd(id):
 # clears, removals, and new watches) and general website activity. Although I'm not actually showing the
 # general website activity, I do receive it all and COULD do something with it if I so choose.
 def listenjob(id, jobId):
+    # Don't worry about this jobId, this is just to ensure the user can only ask for 1 listen "Job" at a time.
     global listenJobId
     # The idea is that you get the initial watch counts and stuff yourself from standard chaining 
     # then continually update them. Also, you would probably retrieve the last X comments for display in
     # the rooms you choose
     watches = displaynotifications(True)
+    # A function to find watches in our in-memory system by contentId
     def findWatch(contentId, remove = False):
         for w in watches:
             if w["contentId"] == contentId:
@@ -377,17 +379,23 @@ def listenjob(id, jobId):
                     watches.remove(w)
                 return w
         return None
+    # A very silly-named "empty" object representing the data in our watch (not all of it, just the pertinent stuff for portraying emptiness)
     emptyGuy = lambda: { "count" : 0, "lastDate" : None }
+    # Clear notifications for the given watch (I track activity and comment notifications separately, you don't have to if you don't want)
     def resetWatch(watch):
         if watch:
             watch["activity"] = emptyGuy()
             watch["comment"] = emptyGuy()
+    # This function updates one of our in-memory watches with a SINGLE comment/activity (remember I get them all). This would have to be 
+    # called for every single comment/activity you get.
     def fillWatch(watch, key, date):
         if watch:
             if key not in watch:
                 watch[key] = emptyGuy()
             watch[key]["count"] += 1
             watch[key]["lastDate"] = date
+    # Start with -1 to say "just listen for whatever is new". Yes I MIGHT miss some comments between when I asked for the first time with 
+    # chaining and now but egh this is just an example. You could use the lastId from your comment chain
     lastId = -1
     while True:
         try:
@@ -397,16 +405,21 @@ def listenjob(id, jobId):
             # cheap but server usage is NOT, and this chain is so simple and easy on the server. You don't have to do it like this, you could chain
             # against watches and do proper limitations and all that.
             req = stdrequest(f"{API}/read/listen?actions=%7B%22statuses%22%3A%7B%2243%22%3A%22active%22%7D%2C%22clearNotifications%22%3A%5B{id}%5D%2C%22lastId%22%3A{lastId}%2C%22chains%22%3A%5B%22comment.0id%22%2C%22activity.0id%22%2C%22watch.0id%22%2C%22content.1parentId.2contentId.3contentId%22%2C%22user.1createUserId.2userId%22%5D%7D")
+            # Don't worry about this part, again just for single-jobs checking
             if jobId != listenJobId:
                 logging.debug("Old listener final halt")
                 return
             logging.debug(f"Listen complete")
             logging.debug(simpleformat(req))
+            # The chains aren't always what completed, it could be the listeners
             chains = req["chains"] if "chains" in req else None
             showWatches = False
-            # We should be constnatly clearing the notifications for this room (clearNotifications in the url) so do so from the front-end:
+            # We should be constnatly clearing the notifications for this room (clearNotifications is in the above url, so the backend has it 
+            # but we don't) so do so from the front-end:
             resetWatch(findWatch(id))
+            # Update lastId with whatever the backend gave us. We don't have to think about it
             lastId = req["lastId"]
+            # If there are watches, these are new. Add then with empty notifications to our in-memory list
             if "watch" in chains:
                 link((chains["watch"], "contentId"), (chains["content"], "id"), "content")
                 for w in chains["watch"]:
@@ -417,12 +430,16 @@ def listenjob(id, jobId):
                         showWatches = True
                     else:
                         logging.warning(f"Added a watch we were already tracking: {w['contentId']}")
+            # These "watchdelete" chains show up automatically without actually requesting them in the chain. If they're here, remove the 
+            # watch from the in-memory list
             if "watchdelete" in chains:
                 for wd in chains["watchdelete"]:
                     if findWatch(wd["contentId"], True):
                         showWatches = True
                     else:
                         logging.warning("Deleted a watch we weren't tracking!")
+            # This is the same as watchdelete above: automatically shows up without requesting. Updates for NOW are all clears, so you can
+            # simply set notifications to 0 in your in-memory tracker
             if "watchupdate" in chains:
                 for wd in chains["watchupdate"]:
                     fw = findWatch(wd["contentId"])
@@ -431,7 +448,11 @@ def listenjob(id, jobId):
                         showWatches = True
                     else:
                         logging.warning("Cleared a watch we weren't tracking!")
+            # Comments are either in our current room (if c["parentId"] == id) OR are watches (the findWatch thing). One will display them, 
+            # the other will update notification counts in our in-memory tracker
             if "comment" in chains:
+                # This one actually displays the comments we care about, so we don't have to handle them in the for loop. The for loop is
+                # for watches. Yes this is clunky
                 docomments(chains, lambda x: [c for c in x if c["parentId"] == id])
                 for c in chains["comment"]:
                     if c["parentId"] == id:
@@ -440,6 +461,7 @@ def listenjob(id, jobId):
                     if fw:
                         fillWatch(fw, "comment", c["createDate"])
                         showWatches = True
+            # Activity, same as comments: if they're in our watchlist, update the notification counts in-memory
             if "activity" in chains:
                 for a in chains["activity"]:
                     fw = findWatch(a["contentId"])
