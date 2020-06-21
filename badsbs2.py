@@ -255,11 +255,14 @@ def displaywatches(page):
     idresult(req["watch"], lambda x: (f"{x['content']['name']} [C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
 
 def commentshowresult(x, maxUsername):
-    msg = x['user']["username"].rjust(maxUsername) + ": "
-    try:
-        msg += json.loads(x['content'])["t"]
-    except:
-        msg += x['content']
+    if x["deleted"]:
+        msg = f"Comment {x['id']} deleted"
+    else:
+        msg = (x['user']["username"].rjust(maxUsername) if "user" in x else "???") + ": "
+        try:
+            msg += json.loads(x['content'])["t"]
+        except:
+            msg += x['content']
     return msg + " - " + timesince(x["createDate"])
 
 # TODO: fix all this crap, you need to filter the comments before displaying them!
@@ -268,7 +271,7 @@ def docomments(req, cfilter = None):
     if not cfilter:
         cfilter = lambda x: x
     coms = cfilter(req["comment"])
-    maxUsername = max(len(c['user']["username"]) for c in coms) if coms else 0
+    maxUsername = max((len(c['user']["username"]) if "user" in c else 0) for c in coms) if coms else 0
     idresult(coms[::-1], lambda x: commentshowresult(x, maxUsername))
     # lambda x : x['user']["username"].rjust(maxUsername) + ": " + json.loads(x['content'])["t"] + " - " + timesince(x["createDate"])) #[C{x['content']['parentId']}:U{x['content']['createUserId']}]" if 'content' in x else '') + " - " + timesince(x["createDate"]), "contentId")
     # lambda x: commentshowresult(x, maxUsername))
