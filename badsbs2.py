@@ -399,7 +399,7 @@ def listenjob(id, jobId):
             watch[key]["lastDate"] = date
     # Start with -1 to say "just listen for whatever is new". Yes I MIGHT miss some comments between when I asked for the first time with 
     # chaining and now but egh this is just an example. You could use the lastId from your comment chain
-    lastId = -1
+    lastId = 0 
     while True:
         try:
             # NOTE: There are MANY ways to get what you want from the listening endpoint. This version uses a simple chain but it's inefficient for
