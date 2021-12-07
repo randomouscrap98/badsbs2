@@ -1,3 +1,6 @@
+## UPDATE 2021-12-06:
+This tool no longer works, as the API it was contacting has been completely changed, and the old version is no longer available.
+
 ## badsbs2
 A python script that gives a very bad interface for sbs2
 
